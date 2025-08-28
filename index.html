@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <title>智能路灯控制面板</title>
+  <title>Smart Streetlight Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background: #f9f9f9; }
@@ -26,16 +26,16 @@
   </style>
 </head>
 <body>
-  <h1>智能路灯控制面板</h1>
+  <h1>Smart Streetlight Dashboard</h1>
 
-  <h2>状态指示灯</h2>
+  <h2>Status</h2>
   <div class="status">
     <div class="indicator"><div id="emergency-ind" class="circle"></div> Emergency</div>
     <div class="indicator"><div id="ir-ind" class="circle"></div> IR Detect</div>
     <div class="indicator"><div id="fault-ind" class="circle"></div> Lamp Fault</div>
   </div>
 
-  <h2>控制</h2>
+  <h2>Manual Control</h2>
   <div>
     <button id="manual-btn">Manual: OFF</button>
     <input type="range" id="brightness" min="0" max="255" value="0">
@@ -45,18 +45,18 @@
     <button id="autoenv-btn">Auto Env: OFF</button>
   </div>
 
-  <h2>实时数据</h2>
+  <h2>Real Time Data</h2>
   <div class="charts">
     <div class="chart-container"><canvas id="chart-brightness"></canvas></div>
     <div class="chart-container"><canvas id="chart-ldr"></canvas></div>
     <div class="chart-container"><canvas id="chart-current"></canvas></div>
   </div>
 
-  <h2>历史数据</h2>
+  <h2>History Data</h2>
   <table id="history-table">
     <thead>
       <tr>
-        <th>时间</th><th>LDR</th><th>亮度</th><th>电流 (mA)</th>
+        <th>Time</th><th>LDR</th><th>Brightness</th><th>Current (mA)</th>
         <th>Emergency</th><th>IR</th><th>Fault</th>
       </tr>
     </thead>
