@@ -1,91 +1,85 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh">
 <head>
-  <meta charset="UTF-8" />
-  <title>智慧路灯 Dashboard</title>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <meta charset="UTF-8">
+  <title>智能路灯监控</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      background: #f4f6f9;
-      margin: 0; padding: 20px;
+      background: #f8f9fa;
+      margin: 0;
+      padding: 20px;
     }
     h1 {
       text-align: center;
       margin-bottom: 20px;
     }
-    .grid {
+    .container {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 20px;
     }
     .card {
-      background: #fff;
-      padding: 20px;
+      background: white;
       border-radius: 12px;
+      padding: 20px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
-    .status {
+    .status-item {
       display: flex;
       align-items: center;
-      margin: 8px 0;
+      margin-bottom: 10px;
     }
-    .dot {
-      width: 16px; height: 16px;
+    .light {
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
       margin-right: 8px;
       border: 1px solid #ccc;
     }
-    .dot.green { background: #4CAF50; }
-    .dot.red { background: #F44336; }
-    .control {
-      margin: 10px 0;
-    }
+    .green { background: #28a745; }
+    .red { background: #dc3545; }
   </style>
 </head>
 <body>
-  <h1>智慧路灯 Dashboard</h1>
-  <div class="grid">
-    <!-- 左侧：图表 -->
+  <h1>智能路灯实时监控</h1>
+
+  <div class="container">
     <div class="card">
-      <canvas id="chartBrightness"></canvas>
-      <canvas id="chartLDR"></canvas>
-      <canvas id="chartCurrent"></canvas>
+      <h2>实时状态</h2>
+      <div class="status-item">
+        <div id="emergencyLight" class="light red"></div> Emergency
+      </div>
+      <div class="status-item">
+        <div id="irLight" class="light red"></div> IR 检测
+      </div>
+      <div class="status-item">
+        <div id="lamp1Light" class="light green"></div> Lamp1 正常
+      </div>
+      <div class="status-item">
+        <div id="lamp2Light" class="light green"></div> Lamp2 正常
+      </div>
+      <div class="status-item">
+        <div id="lamp3Light" class="light green"></div> Lamp3 正常
+      </div>
     </div>
 
-    <!-- 右侧：状态与控制 -->
     <div class="card">
-      <h2>状态监控</h2>
-      <div class="status"><div id="dotEmergency" class="dot"></div> Emergency</div>
-      <div class="status"><div id="dotIR" class="dot"></div> IR Detect</div>
-      <div class="status"><div id="dotLamp1" class="dot"></div> Lamp1 Fault</div>
-      <div class="status"><div id="dotLamp2" class="dot"></div> Lamp2 Fault</div>
-      <div class="status"><div id="dotLamp3" class="dot"></div> Lamp3 Fault</div>
+      <h2>亮度 & 光照 (LDR)</h2>
+      <canvas id="brightnessChart"></canvas>
+    </div>
 
-      <h2>控制面板</h2>
-      <div class="control">
-        <label>
-          <input type="checkbox" id="manualMode" /> Manual Mode
-        </label>
-      </div>
-      <div class="control">
-        <label>
-          <input type="checkbox" id="autoEnvMode" /> Auto Env Mode
-        </label>
-      </div>
-      <div class="control">
-        <label>Manual Brightness:
-          <input type="range" id="manualBrightness" min="0" max="255" />
-          <span id="brightnessValue">0</span>
-        </label>
-      </div>
+    <div class="card">
+      <h2>电流 (mA)</h2>
+      <canvas id="currentChart"></canvas>
     </div>
   </div>
 
-  <script>
-    // Firebase 配置
+  <script type="module">
+    // ===== Firebase 配置 =====
     const firebaseConfig = {
       apiKey: "AIzaSyBuL1RKXOEbX4-Y2eKJhzBmKjHSmmgWrgU",
       authDomain: "streetlight-6370e.firebaseapp.com",
@@ -95,100 +89,74 @@
       messagingSenderId: "532892421203",
       appId: "1:532892421203:web:c210b7b6e21b85d651caa6"
     };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.database(app);
 
-    // 创建图表
-    const ctxB = document.getElementById("chartBrightness").getContext("2d");
-    const chartBrightness = new Chart(ctxB, {
-      type: 'line',
-      data: { labels: [], datasets: [{ label: "Brightness", data: [], borderColor: "#ff9800" }] },
-      options: { scales: { x: { display: false }, y: { min:0, max:255 } } }
-    });
+    // ===== Chart.js 初始化 =====
+    const brightnessCtx = document.getElementById("brightnessChart").getContext("2d");
+    const currentCtx = document.getElementById("currentChart").getContext("2d");
 
-    const ctxL = document.getElementById("chartLDR").getContext("2d");
-    const chartLDR = new Chart(ctxL, {
-      type: 'line',
-      data: { labels: [], datasets: [{ label: "LDR Value", data: [], borderColor: "#3f51b5" }] },
-      options: { scales: { x: { display: false } } }
-    });
-
-    const ctxC = document.getElementById("chartCurrent").getContext("2d");
-    const chartCurrent = new Chart(ctxC, {
-      type: 'line',
+    const brightnessChart = new Chart(brightnessCtx, {
+      type: "line",
       data: {
         labels: [],
         datasets: [
-          { label: "Current1 (mA)", data: [], borderColor: "#e91e63" },
-          { label: "Current2 (mA)", data: [], borderColor: "#4caf50" },
-          { label: "Current3 (mA)", data: [], borderColor: "#2196f3" }
+          { label: "亮度", borderColor: "blue", data: [], fill: false },
+          { label: "LDR", borderColor: "orange", data: [], fill: false }
         ]
-      },
-      options: { scales: { x: { display: false } } }
-    });
-
-    function updateChart(chart, value) {
-      chart.data.labels.push("");
-      chart.data.datasets[0].data.push(value);
-      if (chart.data.labels.length > 20) {
-        chart.data.labels.shift();
-        chart.data.datasets.forEach(d => d.data.shift());
       }
-      chart.update();
-    }
+    });
 
-    function updateChartMultiple(chart, values) {
-      chart.data.labels.push("");
-      chart.data.datasets.forEach((d, i) => d.data.push(values[i]));
-      if (chart.data.labels.length > 20) {
-        chart.data.labels.shift();
-        chart.data.datasets.forEach(d => d.data.shift());
+    const currentChart = new Chart(currentCtx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          { label: "电流1", borderColor: "red", data: [], fill: false },
+          { label: "电流2", borderColor: "green", data: [], fill: false },
+          { label: "电流3", borderColor: "purple", data: [], fill: false }
+        ]
       }
-      chart.update();
+    });
+
+    // ===== 更新状态灯 =====
+    function setLight(id, state) {
+      document.getElementById(id).className = "light " + (state ? "green" : "red");
     }
 
-    // 状态更新
-    function setDot(id, state) {
-      document.getElementById(id).className = "dot " + (state ? "green" : "red");
-    }
+    // ===== 实时监听 Firebase =====
+    const telemetryRef = db.ref("devices/smart-street-light/telemetry/latest");
+    telemetryRef.on("value", (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
 
-    // 监听数据
-    db.ref("sensor").on("value", snap => {
-      const v = snap.val();
-      if (!v) return;
+      // 更新状态灯
+      setLight("emergencyLight", data.emergency === 0);
+      setLight("irLight", (data.ir_left === 1 || data.ir_right === 1));
+      setLight("lamp1Light", !data.lamp1_fault);
+      setLight("lamp2Light", !data.lamp2_fault);
+      setLight("lamp3Light", !data.lamp3_fault);
 
-      updateChart(chartBrightness, v.brightness || 0);
-      updateChart(chartLDR, v.ldr_value || 0);
-      updateChartMultiple(chartCurrent, [v.current1 || 0, v.current2 || 0, v.current3 || 0]);
+      // 图表更新
+      const ts = new Date().toLocaleTimeString();
+      if (brightnessChart.data.labels.length > 20) {
+        brightnessChart.data.labels.shift();
+        brightnessChart.data.datasets.forEach(ds => ds.data.shift());
+      }
+      brightnessChart.data.labels.push(ts);
+      brightnessChart.data.datasets[0].data.push(data.brightness);
+      brightnessChart.data.datasets[1].data.push(data.ldr_value);
+      brightnessChart.update();
 
-      setDot("dotEmergency", v.emergency);
-      setDot("dotIR", v.ir_left || v.ir_right);
-      setDot("dotLamp1", !v.lamp1_fault);
-      setDot("dotLamp2", !v.lamp2_fault);
-      setDot("dotLamp3", !v.lamp3_fault);
-    });
-
-    // 控制面板 -> Firebase
-    document.getElementById("manualMode").addEventListener("change", e => {
-      db.ref("control/manual_mode").set(e.target.checked ? 1 : 0);
-    });
-    document.getElementById("autoEnvMode").addEventListener("change", e => {
-      db.ref("control/auto_env_mode").set(e.target.checked ? 1 : 0);
-    });
-    document.getElementById("manualBrightness").addEventListener("input", e => {
-      const val = e.target.value;
-      document.getElementById("brightnessValue").innerText = val;
-      db.ref("control/manual_brightness").set(parseInt(val));
-    });
-
-    // 初始同步控件状态
-    db.ref("control").on("value", snap => {
-      const v = snap.val();
-      if (!v) return;
-      document.getElementById("manualMode").checked = v.manual_mode == 1;
-      document.getElementById("autoEnvMode").checked = v.auto_env_mode == 1;
-      document.getElementById("manualBrightness").value = v.manual_brightness || 0;
-      document.getElementById("brightnessValue").innerText = v.manual_brightness || 0;
+      if (currentChart.data.labels.length > 20) {
+        currentChart.data.labels.shift();
+        currentChart.data.datasets.forEach(ds => ds.data.shift());
+      }
+      currentChart.data.labels.push(ts);
+      currentChart.data.datasets[0].data.push(data.current1_mA);
+      currentChart.data.datasets[1].data.push(data.current2_mA);
+      currentChart.data.datasets[2].data.push(data.current3_mA);
+      currentChart.update();
     });
   </script>
 </body>
