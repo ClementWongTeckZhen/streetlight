@@ -1,19 +1,54 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>ESP32 数据监控</title>
-  <!-- Firebase v8 SDK -->
+  <meta charset="utf-8" />
+  <title>Smart Streetlight Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Firebase v8 CDN（与 ESP32 REST 兼容的写法最简单） -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); }
+    .row { display:flex; gap:12px; align-items:center; }
+    .col { flex:1; }
+    label { font-weight:600; display:block; margin-bottom:6px; }
+    #telemetry pre { background:#f7f7f7; padding:10px; border-radius:6px; }
+  </style>
 </head>
 <body>
-  <h2>实时数据：</h2>
-  <p id="data">加载中...</p>
+  <h1>Smart Streetlight — Dashboard</h1>
+
+  <div class="card" id="telemetry">
+    <h3>实时数据</h3>
+    <div id="status">正在连接 Firebase...</div>
+    <pre id="telemetryJson">等待数据...</pre>
+  </div>
+
+  <div class="card">
+    <h3>远程控制</h3>
+    <div class="row">
+      <div class="col">
+        <label>手动模式（manual_mode）</label>
+        <button id="manualToggle">切换</button>
+        <div id="manualState">未知</div>
+      </div>
+      <div class="col">
+        <label>自动环境模式（auto_env_mode）</label>
+        <button id="autoToggle">切换</button>
+        <div id="autoState">未知</div>
+      </div>
+      <div class="col">
+        <label>手动亮度（manual_brightness）</label>
+        <input id="brightnessSlider" type="range" min="0" max="255" value="0" />
+        <div>当前: <span id="brightnessValue">0</span></div>
+      </div>
+    </div>
+  </div>
 
   <script>
-    // 复制 Firebase 控制台给你的配置粘贴到这里
-    const firebaseConfig = {
+    // ====== 在此替换成你的 Firebase 配置 ======
+    var firebaseConfig = {
       apiKey: "AIzaSyBuL1RKXOEbX4-Y2eKJhzBmKjHSmmgWrgU",
       authDomain: "streetlight-6370e.firebaseapp.com",
       databaseURL: "https://streetlight-6370e-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -22,15 +57,83 @@
       messagingSenderId: "532892421203",
       appId: "1:532892421203:web:c210b7b6e21b85d651caa6"
     };
+    // =========================================
 
-    // 初始化 Firebase
     firebase.initializeApp(firebaseConfig);
+    var db = firebase.database();
 
-    // 监听 Realtime Database 节点
-    const dbRef = firebase.database().ref("sensor/value");
-    dbRef.on("value", (snapshot) => {
-      document.getElementById("data").innerText = snapshot.val();
+    const devicePath = "devices/smart-street-light";
+    const telemetryLatestPath = devicePath + "/telemetry/latest";
+    const controlsPath = devicePath + "/controls";
+
+    const statusEl = document.getElementById("status");
+    const telemetryPre = document.getElementById("telemetryJson");
+
+    const manualToggle = document.getElementById("manualToggle");
+    const autoToggle = document.getElementById("autoToggle");
+    const manualState = document.getElementById("manualState");
+    const autoState = document.getElementById("autoState");
+    const brightnessSlider = document.getElementById("brightnessSlider");
+    const brightnessValue = document.getElementById("brightnessValue");
+
+    // 监听最新 telemetry
+    db.ref(telemetryLatestPath).on("value", (snap) => {
+      const val = snap.val();
+      if (!val) {
+        telemetryPre.textContent = "无数据";
+        statusEl.textContent = "已连接，但尚无 telemetry";
+        return;
+      }
+      telemetryPre.textContent = JSON.stringify(val, null, 2);
+      statusEl.textContent = "已连接并接收数据";
+    }, (err) => {
+      statusEl.textContent = "监听 telemetry 出错: " + err.message;
     });
+
+    // 监听 controls（双向绑定 UI -> DB）
+    db.ref(controlsPath).on("value", (snap) => {
+      const c = snap.val() || {};
+      manualState.textContent = (c.manual_mode == 1) ? "ON" : "OFF";
+      autoState.textContent = (c.auto_env_mode == 1) ? "ON" : "OFF";
+      const mb = (typeof c.manual_brightness !== "undefined") ? c.manual_brightness : 0;
+      brightnessValue.textContent = mb;
+      brightnessSlider.value = mb;
+    });
+
+    // toggle 按钮：读取当前值并写回其相反值
+    manualToggle.addEventListener("click", async () => {
+      const snap = await db.ref(controlsPath + "/manual_mode").once("value");
+      const cur = snap.val() || 0;
+      db.ref(controlsPath + "/manual_mode").set(cur == 1 ? 0 : 1);
+    });
+    autoToggle.addEventListener("click", async () => {
+      const snap = await db.ref(controlsPath + "/auto_env_mode").once("value");
+      const cur = snap.val() || 0;
+      db.ref(controlsPath + "/auto_env_mode").set(cur == 1 ? 0 : 1);
+    });
+
+    // 滑条：节流写入（避免高频）
+    let sliderTimer = null;
+    brightnessSlider.addEventListener("input", () => {
+      brightnessValue.textContent = brightnessSlider.value;
+      if (sliderTimer) clearTimeout(sliderTimer);
+      sliderTimer = setTimeout(() => {
+        db.ref(controlsPath + "/manual_brightness").set(parseInt(brightnessSlider.value));
+      }, 300);
+    });
+
+    // 初始确保 controls 路径存在（如果第一次使用）
+    db.ref(controlsPath).once("value").then((snap) => {
+      if (!snap.exists()) {
+        db.ref(controlsPath).set({
+          manual_mode: 0,
+          auto_env_mode: 0,
+          manual_brightness: 0,
+          emergency: 0
+        });
+      }
+    });
+
   </script>
 </body>
 </html>
