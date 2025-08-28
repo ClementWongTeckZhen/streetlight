@@ -1,198 +1,118 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh">
 <head>
-  <meta charset="utf-8" />
-  <title>Smart Streetlight Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- Firebase v8 -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-
-  <!-- Chart.js -->
+  <meta charset="UTF-8">
+  <title>Smart Street Light Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   <style>
-    body { font-family: "Segoe UI", Arial, sans-serif; margin: 20px; background:#f4f6f9; color:#333; }
-    h1 { text-align:center; margin-bottom:24px; }
-    .dashboard { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap:16px; }
-    .card { background:white; padding:16px; border-radius:12px; box-shadow:0 4px 10px rgba(0,0,0,0.05); }
-    .status-light { display:inline-block; width:14px; height:14px; border-radius:50%; margin-right:6px; vertical-align:middle; }
-    .green { background:#28a745; }
-    .red { background:#dc3545; }
-    .gray { background:#bbb; }
-    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    .col { flex:1; min-width:120px; }
-    button { padding:6px 12px; border:none; border-radius:6px; background:#007bff; color:white; cursor:pointer; }
-    button:hover { background:#0056b3; }
-    input[type=range] { width:100%; }
-    pre { background:#f7f7f7; padding:10px; border-radius:6px; font-size:12px; max-height:200px; overflow:auto; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f9f9f9;
+    }
+    h2 {
+      margin-top: 40px;
+      text-align: center;
+    }
+    canvas {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px;
+      margin: 20px auto;
+      display: block;
+      max-width: 800px;
+    }
+    #status {
+      text-align: center;
+      font-size: 18px;
+      margin-bottom: 20px;
+    }
   </style>
 </head>
 <body>
-  <h1>🌙 Smart Streetlight Dashboard</h1>
+  <h1 style="text-align:center;">Smart Street Light Dashboard</h1>
+  <div id="status">实时数据：加载中...</div>
 
-  <div class="dashboard">
-    <!-- 实时状态 -->
-    <div class="card">
-      <h3>实时状态</h3>
-      <div>Emergency: <span id="emergencyLight" class="status-light gray"></span></div>
-      <div>IR Detect: <span id="irLight" class="status-light gray"></span></div>
-      <div>Lamp1 Fault: <span id="lamp1Light" class="status-light gray"></span></div>
-      <div>Lamp2 Fault: <span id="lamp2Light" class="status-light gray"></span></div>
-      <div>Lamp3 Fault: <span id="lamp3Light" class="status-light gray"></span></div>
-      <div style="margin-top:10px;color:#666;font-size:12px;" id="status">正在连接 Firebase...</div>
-    </div>
+  <h2>Brightness (亮度)</h2>
+  <canvas id="brightnessChart"></canvas>
 
-    <!-- 控制面板 -->
-    <div class="card">
-      <h3>远程控制</h3>
-      <div class="row">
-        <div class="col">
-          <label>手动模式</label>
-          <button id="manualToggle">切换</button>
-          <div id="manualState">未知</div>
-        </div>
-        <div class="col">
-          <label>自动环境模式</label>
-          <button id="autoToggle">切换</button>
-          <div id="autoState">未知</div>
-        </div>
-      </div>
-      <div style="margin-top:16px;">
-        <label>手动亮度</label>
-        <input id="brightnessSlider" type="range" min="0" max="255" value="0" />
-        <div>当前: <span id="brightnessValue">0</span></div>
-      </div>
-    </div>
+  <h2>LDR 值</h2>
+  <canvas id="ldrChart"></canvas>
 
-    <!-- 图表 -->
-    <div class="card">
-      <h3>亮度 & LDR</h3>
-      <canvas id="chartBrightness"></canvas>
-    </div>
-    <div class="card">
-      <h3>电流 (mA)</h3>
-      <canvas id="chartCurrent"></canvas>
-    </div>
-
-    <!-- 原始数据 -->
-    <div class="card">
-      <h3>原始 Telemetry</h3>
-      <pre id="telemetryJson">等待数据...</pre>
-    </div>
-  </div>
+  <h2>电流 (mA)</h2>
+  <canvas id="currentChart"></canvas>
 
   <script>
-    // ====== Firebase 配置（换成你的） ======
-    var firebaseConfig = {
-      apiKey: "AIzaSyBuL1RKXOEbX4-Y2eKJhzBmKjHSmmgWrgU",
-      authDomain: "streetlight-6370e.firebaseapp.com",
-      databaseURL: "https://streetlight-6370e-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "streetlight-6370e",
-      storageBucket: "streetlight-6370e.firebasestorage.app",
-      messagingSenderId: "532892421203",
-      appId: "1:532892421203:web:c210b7b6e21b85d651caa6"
-    };
-    firebase.initializeApp(firebaseConfig);
-    var db = firebase.database();
+    const FIREBASE_URL = "https://streetlight-6370e-default-rtdb.asia-southeast1.firebasedatabase.app";
+    const DEVICE = "smart-street-light";
 
-    const devicePath = "devices/smart-street-light";
-    const telemetryLatestPath = devicePath + "/telemetry/latest";
-    const controlsPath = devicePath + "/controls";
+    // 三个图表数据
+    const brightnessData = { labels: [], datasets: [{ label: "Brightness", data: [], borderColor: "orange" }] };
+    const ldrData = { labels: [], datasets: [{ label: "LDR", data: [], borderColor: "blue" }] };
+    const currentData = { labels: [], datasets: [{ label: "Current (mA)", data: [], borderColor: "green" }] };
 
-    // --- DOM
-    const statusEl = document.getElementById("status");
-    const telemetryPre = document.getElementById("telemetryJson");
-    const manualToggle = document.getElementById("manualToggle");
-    const autoToggle = document.getElementById("autoToggle");
-    const manualState = document.getElementById("manualState");
-    const autoState = document.getElementById("autoState");
-    const brightnessSlider = document.getElementById("brightnessSlider");
-    const brightnessValue = document.getElementById("brightnessValue");
-    const emergencyLight = document.getElementById("emergencyLight");
-    const irLight = document.getElementById("irLight");
-    const lamp1Light = document.getElementById("lamp1Light");
-    const lamp2Light = document.getElementById("lamp2Light");
-    const lamp3Light = document.getElementById("lamp3Light");
-
-    function setLight(el, state) {
-      el.className = "status-light " + (state ? "green" : "red");
-    }
-
-    // --- Chart.js 初始化
-    const ctx1 = document.getElementById("chartBrightness").getContext("2d");
-    const chartBrightness = new Chart(ctx1, {
-      type: "line",
-      data: { labels: [], datasets: [
-        { label:"Brightness", data:[], borderColor:"#007bff", fill:false },
-        { label:"LDR", data:[], borderColor:"#28a745", fill:false }
-      ] },
-      options:{ responsive:true, scales:{ x:{display:false}, y:{beginAtZero:true} } }
+    // 建立三个图表
+    const brightnessChart = new Chart(document.getElementById("brightnessChart"), {
+      type: "line", data: brightnessData,
+      options: { responsive: true, scales: { x: { display: true }, y: { beginAtZero: true } } }
+    });
+    const ldrChart = new Chart(document.getElementById("ldrChart"), {
+      type: "line", data: ldrData,
+      options: { responsive: true, scales: { x: { display: true }, y: { beginAtZero: true } } }
+    });
+    const currentChart = new Chart(document.getElementById("currentChart"), {
+      type: "line", data: currentData,
+      options: { responsive: true, scales: { x: { display: true }, y: { beginAtZero: true } } }
     });
 
-    const ctx2 = document.getElementById("chartCurrent").getContext("2d");
-    const chartCurrent = new Chart(ctx2, {
-      type: "line",
-      data: { labels: [], datasets: [
-        { label:"Current1", data:[], borderColor:"#ff0000", fill:false },
-        { label:"Current2", data:[], borderColor:"#ff8800", fill:false },
-        { label:"Current3", data:[], borderColor:"#00cccc", fill:false }
-      ] },
-      options:{ responsive:true, scales:{ x:{display:false}, y:{beginAtZero:true} } }
-    });
+    async function fetchLatest() {
+      try {
+        const res = await fetch(`${FIREBASE_URL}/devices/${DEVICE}/telemetry/latest.json`);
+        if (!res.ok) throw new Error("网络错误");
+        const data = await res.json();
+        if (!data) {
+          document.getElementById("status").textContent = "实时数据：暂无数据";
+          return;
+        }
 
-    function addData(chart, values) {
-      chart.data.labels.push("");
-      chart.data.datasets.forEach((ds,i)=>ds.data.push(values[i]));
-      if(chart.data.labels.length > 20){
-        chart.data.labels.shift();
-        chart.data.datasets.forEach(ds=>ds.data.shift());
+        const ts = new Date(data.timestamp * 1000).toLocaleTimeString();
+        document.getElementById("status").textContent = 
+          `实时数据：亮度=${data.brightness}, LDR=${data.ldr_value}, 电流=${data.current_mA.toFixed(2)} mA`;
+
+        // 更新亮度图
+        if (brightnessData.labels.length > 20) {
+          brightnessData.labels.shift(); brightnessData.datasets[0].data.shift();
+        }
+        brightnessData.labels.push(ts);
+        brightnessData.datasets[0].data.push(data.brightness);
+        brightnessChart.update();
+
+        // 更新 LDR 图
+        if (ldrData.labels.length > 20) {
+          ldrData.labels.shift(); ldrData.datasets[0].data.shift();
+        }
+        ldrData.labels.push(ts);
+        ldrData.datasets[0].data.push(data.ldr_value);
+        ldrChart.update();
+
+        // 更新电流图
+        if (currentData.labels.length > 20) {
+          currentData.labels.shift(); currentData.datasets[0].data.shift();
+        }
+        currentData.labels.push(ts);
+        currentData.datasets[0].data.push(data.current_mA);
+        currentChart.update();
+
+      } catch (err) {
+        document.getElementById("status").textContent = "获取数据失败";
+        console.error(err);
       }
-      chart.update();
     }
 
-    // --- Firebase 数据监听
-    db.ref(telemetryLatestPath).on("value", (snap) => {
-      const val = snap.val();
-      if (!val) { telemetryPre.textContent="无数据"; return; }
-      telemetryPre.textContent = JSON.stringify(val,null,2);
-      statusEl.textContent = "已连接 ✅";
-
-      // 状态灯
-      setLight(emergencyLight, val.emergency==1);
-      setLight(irLight, (val.ir_left==1 || val.ir_right==1));
-      setLight(lamp1Light, !val.lamp1_fault);
-      setLight(lamp2Light, !val.lamp2_fault);
-      setLight(lamp3Light, !val.lamp3_fault);
-
-      // 图表更新
-      addData(chartBrightness, [val.brightness||0, val.ldr_value||0]);
-      addData(chartCurrent, [val.current1||0, val.current2||0, val.current3||0]);
-    });
-
-    db.ref(controlsPath).on("value", (snap) => {
-      const c = snap.val()||{};
-      manualState.textContent = (c.manual_mode==1)?"ON":"OFF";
-      autoState.textContent = (c.auto_env_mode==1)?"ON":"OFF";
-      const mb = c.manual_brightness||0;
-      brightnessSlider.value = mb;
-      brightnessValue.textContent = mb;
-    });
-
-    // 控制操作
-    manualToggle.addEventListener("click", async()=>{
-      const snap = await db.ref(controlsPath+"/manual_mode").once("value");
-      db.ref(controlsPath+"/manual_mode").set(snap.val()==1?0:1);
-    });
-    autoToggle.addEventListener("click", async()=>{
-      const snap = await db.ref(controlsPath+"/auto_env_mode").once("value");
-      db.ref(controlsPath+"/auto_env_mode").set(snap.val()==1?0:1);
-    });
-    brightnessSlider.addEventListener("input", ()=>{
-      brightnessValue.textContent = brightnessSlider.value;
-      db.ref(controlsPath+"/manual_brightness").set(parseInt(brightnessSlider.value));
-    });
+    // 每 5 秒获取一次数据
+    setInterval(fetchLatest, 5000);
+    fetchLatest();
   </script>
 </body>
 </html>
