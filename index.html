@@ -1,35 +1,87 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>ESP32 数据监控</title>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js"></script>
+  <meta charset="UTF-8">
+  <title>Smart Street Light Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; background: #f5f5f5; }
+    h2 { margin-top: 20px; }
+    .value-box { 
+      display: inline-block; 
+      margin: 10px; 
+      padding: 15px 25px; 
+      border-radius: 12px; 
+      background: white; 
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2); 
+      font-size: 20px;
+    }
+    canvas { max-width: 600px; margin: 20px auto; }
+  </style>
 </head>
 <body>
-  <h2>实时数据：</h2>
-  <p id="data">加载中...</p>
+
+  <h2>🌙 Smart Street Light Monitor</h2>
+
+  <div id="ldrBox" class="value-box">LDR: --</div>
+  <div id="brightnessBox" class="value-box">Brightness: --</div>
+
+  <canvas id="chart"></canvas>
 
   <script>
-    // 替换成你的 Firebase 配置信息（在 Firebase 控制台复制）
-    const firebaseConfig = {
-      apiKey: "AIzaSyBuL1RKXOEbX4-Y2eKJhzBmKjHSmmgWrgU",
-      authDomain: "streetlight-6370e.firebaseapp.com",
-      databaseURL: "https://streetlight-6370e-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "streetlight-6370e",
-      storageBucket: "streetlight-6370e.firebasestorage.app",
-      messagingSenderId: "532892421203",
-      appId: "1:532892421203:web:c210b7b6e21b85d651caa6"
-    };
+    const TOKEN = "你的_Ubidots_TOKEN";  // ← 改成你的 Ubidots TOKEN
+    const DEVICE_LABEL = "smart-street-light"; 
 
-    // 初始化 Firebase
-    const app = firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
+    const headers = { "X-Auth-Token": TOKEN, "Content-Type": "application/json" };
 
-    // 监听节点 sensor/value 的变化
-    firebase.database().ref("sensor/value").on("value", (snapshot) => {
-      document.getElementById("data").innerText = snapshot.val();
+    // 图表初始化
+    const ctx = document.getElementById('chart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'LDR Value', borderColor: 'blue', data: [], fill: false },
+          { label: 'Brightness', borderColor: 'orange', data: [], fill: false }
+        ]
+      },
+      options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
+
+    async function fetchData(variable) {
+      const url = `https://industrial.api.ubidots.com/api/v1.6/devices/${DEVICE_LABEL}/${variable}/lv`;
+      const res = await fetch(url, { headers });
+      return res.text(); // 最新值
+    }
+
+    async function updateData() {
+      try {
+        const ldr = await fetchData("ldr_value");
+        const brightness = await fetchData("brightness");
+
+        document.getElementById("ldrBox").innerText = "LDR: " + ldr;
+        document.getElementById("brightnessBox").innerText = "Brightness: " + brightness;
+
+        const time = new Date().toLocaleTimeString();
+        chart.data.labels.push(time);
+        chart.data.datasets[0].data.push(Number(ldr));
+        chart.data.datasets[1].data.push(Number(brightness));
+
+        if (chart.data.labels.length > 20) { // 只保留20个点
+          chart.data.labels.shift();
+          chart.data.datasets.forEach(d => d.data.shift());
+        }
+
+        chart.update();
+      } catch (e) {
+        console.error("Fetch error:", e);
+      }
+    }
+
+    // 每5秒更新一次
+    setInterval(updateData, 5000);
+    updateData();
   </script>
+
 </body>
 </html>
